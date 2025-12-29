@@ -1,6 +1,8 @@
 import json
 import re
 from typing import Any, Optional
+import ast
+from typing import Any, Dict, List
 
 import litellm
 from litellm import completion, completion_cost
@@ -72,6 +74,212 @@ if not ALLOW_SONNET_THINKING:
     logger.warning("Sonnet thinking is disabled")
 
 
+#------------------LFMs Function Calling Parser--------------------
+import ast
+import json
+import os
+import re
+import time
+from typing import Any, Dict, List
+import random
+
+
+def extract_think_block(text: str) -> str | None:
+    """
+    Returns the content inside <think>...</think>, or None if not present.
+    """
+    if not text:
+        return ""
+    m = re.search(r"<think>([\s\S]*?)</think>", text)
+    return m.group(1).strip() if m else ""
+
+def parse_liquid_response(response: str | None) -> str:
+    """
+    Parse the response from LiquidAI and return the function call content.
+    Extracts content from <|tool_call_start|>...<|tool_call_end|> tags if present.
+    """
+    if response is None:
+        return "No Response"
+    if not isinstance(response, str):
+        try:
+            response = str(response)
+        except Exception:
+            return ""
+    
+    if "<|tool_call_start|>" in response and "<|tool_call_end|>" in response:
+        match = re.search(r"<\|tool_call_start\|>(.*?)<\|tool_call_end\|>", response, re.DOTALL)
+        if match:
+            answer = match.group(1)
+        else:
+            answer = response
+        answer = re.sub(r"<\|tool_call_start\|>|<\|tool_call_end\|>", "", answer).strip()
+        return answer
+    else:
+        return response
+
+def generate_id():
+    return f"tool_call_{random.randint(1, 100_000)}"
+
+def _eval_node(node: ast.AST):
+    """Convert a limited subset of AST nodes into Python objects."""
+    if isinstance(node, ast.Constant):
+        return node.value
+    elif isinstance(node, ast.List):
+        return [_eval_node(elt) for elt in node.elts]
+    elif isinstance(node, ast.Tuple):
+        return tuple(_eval_node(elt) for elt in node.elts)
+    elif isinstance(node, ast.Dict):
+        return {
+            _eval_node(k): _eval_node(v)
+            for k, v in zip(node.keys, node.values)
+        }
+    elif isinstance(node, ast.Name):
+        # For things like order=ascending / descending
+        return node.id
+    elif isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+        # Handle negative numbers
+        return -_eval_node(node.operand)
+    else:
+        raise ValueError(f"Unsupported AST node: {ast.dump(node)}")
+
+
+def _get_function_name(node: ast.expr) -> str:
+    """Extract function name from AST node, handling dotted names."""
+    if isinstance(node, ast.Name):
+        return node.id
+    elif isinstance(node, ast.Attribute):
+        return _get_function_name(node.value) + "." + node.attr
+    else:
+        raise ValueError(f"Invalid function name node: {node}")
+
+
+def extract_tool_calls(text: str) -> List[Dict[str, Any]]:
+    """
+    Extract all tool calls from Liquid format response.
+    
+    Format: [func_name(arg1="val", arg2=123), func2(...)]
+    
+    Returns a list of {"name": str, "arguments": dict}.
+    """
+    if not text:
+        return []
+
+    calls: List[Dict[str, Any]] = []
+
+    # Find ALL tool call blocks
+    try:
+        # Parse the function calls
+        parsed = ast.parse(text).body[0].value.elts
+        for call in parsed:
+            try:
+                function_name = _get_function_name(call.func)
+                args = {kw.arg: _eval_node(kw.value) for kw in call.keywords}
+                calls.append({'name': function_name, 'arguments': args})
+            except Exception as e:
+                # Log but continue processing other calls
+                print(f"Warning: Failed to parse individual call: {e}")
+                continue
+    except Exception as e:
+        # Log but continue processing other matches
+        print(f"Warning: Failed to parse tool call block: {e}")
+        return []
+    
+    return calls
+
+
+def _is_tool_call_response_format(items: list) -> bool:
+    """Check if the response is in the expected tool call format."""
+    if not isinstance(items, list) or not items:
+        return False
+    for it in items:
+        if not isinstance(it, dict):
+            return False
+        if set(it.keys()) != {"name", "arguments"}:
+            return False
+    return True
+
+
+def parse_assistant_message(text: str) -> str:
+    if not text:
+        return ""
+    think_block = extract_think_block(text)
+    if "<think>" in text and "</think>" in text:
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+        text = text.lstrip('\n')
+    parsed_text = parse_liquid_response(text)
+    if "<|tool_call_start|>" in text or "<|tool_call_end|>" in text:
+        text = text.replace(parsed_text, "")
+        text = text.replace("<|tool_call_start|>", "")
+        text = text.replace("<|tool_call_end|>", "")
+        text = text.strip()
+    return text
+
+def parse_tool_calls(text: str) -> List[ToolCall]:
+    if not text:
+        return []
+    think_block = extract_think_block(text)
+    if "<think>" in text and "</think>" in text:
+        text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+        text = text.lstrip('\n')
+    parsed_text = parse_liquid_response(text)
+    extracted_tool_calls = []
+    if "<|tool_call_start|>" in text and "<|tool_call_end|>" in text:
+        try:
+            extracted_tool_calls = extract_tool_calls(parsed_text)
+        except Exception as e:
+            print(f"Warning: Failed to parse tool call block: {e}")
+            return []
+    output_calls = []
+    for call in extracted_tool_calls:
+        output_calls.append(ToolCall(
+            id=generate_id(),
+            name=call['name'],
+            arguments=call['arguments'],
+        ))
+    return output_calls
+
+
+def liquid_api_handler(content: str):
+    tool_calls = parse_tool_calls(content) or None
+    content = parse_assistant_message(content)
+    return tool_calls, content
+#-------------------------------------------------------------------
+
+
+#------------------Granite Function Calling Parser--------------------
+def granite_api_handler(content: str):
+    tool_calls = []
+    content = content
+    if "<tool_call>" in content:
+        tool_calls = [
+            match.strip()
+            for match in re.findall(r"<tool_call>\s*(.*?)\s*</tool_call>", content, re.DOTALL)
+        ]
+        for tool_call in tool_calls:
+            try:
+                if isinstance(tool_call, str):
+                    call_dict = json.loads(tool_call)
+                    tool_calls.append(ToolCall(
+                        id=generate_id(),
+                        name=call_dict['name'],
+                        arguments=call_dict['arguments'],
+                    ))
+                elif isinstance(tool_call, dict):
+                    tool_calls.append(ToolCall(
+                        id=generate_id(),
+                        name=tool_call['name'],
+                        arguments=tool_call['arguments'],
+                    ))
+                elif isinstance(tool_call, ToolCall):
+                    tool_calls.append(tool_call)
+            except Exception as e:
+                print(f"Warning: Failed to parse tool call: {e}")
+                continue
+    if not tool_calls:
+        tool_calls = None
+    return tool_calls, content
+#-------------------------------------------------------------------
+
 def _parse_ft_model_name(model: str) -> str:
     """
     Parse the ft model name from the litellm model name.
@@ -95,7 +303,7 @@ def get_response_cost(response: ModelResponse) -> float:
     try:
         cost = completion_cost(completion_response=response)
     except Exception as e:
-        logger.error(e)
+        #logger.error(e)
         return 0.0
     return cost
 
@@ -215,7 +423,15 @@ def generate(
         )
     except Exception as e:
         logger.error(e)
-        raise e
+        message = AssistantMessage(
+        role="assistant",
+        content="Please use ###STOP### to exit the current conversation and try again later.",
+        tool_calls=None,
+        cost=0.0,
+        usage={},
+        raw_data={},
+    )
+        return message
     cost = get_response_cost(response)
     usage = get_response_usage(response)
     response = response.choices[0]
@@ -225,22 +441,46 @@ def generate(
             logger.warning("Output might be incomplete due to token limit!")
     except Exception as e:
         logger.error(e)
-        raise e
+        message = AssistantMessage(
+        role="assistant",
+        content="Please use ###STOP### to exit the current conversation and try again later.",
+        tool_calls=None,
+        cost=0.0,
+        usage={},
+        raw_data={},
+    )
+        return message
     assert response.message.role == "assistant", (
         "The response should be an assistant message"
     )
     content = response.message.content
     tool_calls = response.message.tool_calls or []
-    tool_calls = [
-        ToolCall(
-            id=tool_call.id,
-            name=tool_call.function.name,
-            arguments=json.loads(tool_call.function.arguments),
-        )
-        for tool_call in tool_calls
-    ]
-    tool_calls = tool_calls or None
-
+    #if model != "openrouter/qwen/qwen3-235b-a22b-2507":
+        #print("tool_calls: ", tool_calls)
+        #print("model: ", model)
+        #print("content: ", content)
+    if "liquid-api-Prompt" in model:
+        tool_calls, content = liquid_api_handler(content)
+    else:
+        temp_tool_calls = []
+        for tool_call in tool_calls:
+            try:
+                arg_item = {}
+                if tool_call.function.arguments != "":
+                    arg_item = json.loads(tool_call.function.arguments)
+                temp_tool_calls.append(
+                    ToolCall(
+                        id=tool_call.id,
+                        name=tool_call.function.name,
+                        arguments=arg_item,
+                    )
+                )
+            except Exception as e:
+                break
+        tool_calls = temp_tool_calls or None
+    if "<think>" in content and "</think>" in content:
+        content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
+        content = content.lstrip('\n')
     message = AssistantMessage(
         role="assistant",
         content=content,

@@ -31,6 +31,18 @@ You cannot do both at the same time.
 Try to be helpful and always follow the policy. Always make sure you generate valid JSON only.
 """.strip()
 
+AGENT_INSTRUCTION_LIQUID = """
+You are a customer service agent that helps the user according to the <policy> provided below.
+In each turn you can either:
+- Send a message to the user.
+- Make a tool call.
+You cannot do both at the same time.
+
+Try to be helpful and always follow the policy. Always make sure you generate valid Python only as the following format:
+
+<|tool_call_start|>[func_name1(params_name1=params_value1, params_name2=params_value2...), func_name2(params)]<|tool_call_end|>
+""".strip()
+
 SYSTEM_PROMPT = """
 <instructions>
 {agent_instruction}
@@ -69,9 +81,18 @@ class LLMAgent(LocalAgent[LLMAgentState]):
 
     @property
     def system_prompt(self) -> str:
-        return SYSTEM_PROMPT.format(
-            domain_policy=self.domain_policy, agent_instruction=AGENT_INSTRUCTION
-        )
+        if "liquid-api-Prompt" in self.llm:
+            return SYSTEM_PROMPT.format(
+                domain_policy=self.domain_policy, agent_instruction=AGENT_INSTRUCTION_LIQUID
+            )
+        elif "-instruct" in self.llm:
+            return SYSTEM_PROMPT.format(
+                domain_policy=self.domain_policy, agent_instruction=AGENT_INSTRUCTION + "\n/no_think"
+            )
+        else:
+            return SYSTEM_PROMPT.format(
+                domain_policy=self.domain_policy, agent_instruction=AGENT_INSTRUCTION
+            )
 
     def get_init_state(
         self, message_history: Optional[list[Message]] = None
@@ -111,6 +132,10 @@ class LLMAgent(LocalAgent[LLMAgentState]):
             messages=messages,
             **self.llm_args,
         )
+
+        #print("---------------assistant_message-----------------")
+        #print(assistant_message.content)
+        #print("--------------------------------------------------")
         state.messages.append(assistant_message)
         return assistant_message, state
 

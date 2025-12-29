@@ -122,9 +122,13 @@ class ParticipantMessageBase(BaseModel):
         Check if the message has text content.
         """
         if self.content is None:
-            return False
+            self.content = ""
+            print("content is None, setting to empty string")
+            return True
         if isinstance(self.content, str) and self.content.strip() == "":
-            return False
+            self.content = ""
+            print("content is empty string, setting to empty string")
+            return True
         return True
 
     def is_tool_call(self) -> bool:

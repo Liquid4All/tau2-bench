@@ -505,6 +505,7 @@ class Orchestrator:
                 raise ValueError("Agent or User should send tool call to environment")
             tool_msgs = []
             for tool_call in self.message.tool_calls:
+                print("Getting response for tool call: ", tool_call)
                 tool_msg = self.environment.get_response(tool_call)
                 if tool_msg.error:
                     self.num_errors += 1

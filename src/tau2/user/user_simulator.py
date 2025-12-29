@@ -161,6 +161,9 @@ class UserSimulator(BaseUser):
             tools=self.tools,
             **self.llm_args,
         )
+        print("-------------user_simulator_message-------------------")
+        print(assistant_message)
+        print("--------------------------------")
 
         user_response = assistant_message.content
         logger.debug(f"Response: {user_response}")
