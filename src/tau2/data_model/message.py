@@ -123,11 +123,11 @@ class ParticipantMessageBase(BaseModel):
         """
         if self.content is None:
             self.content = ""
-            print("content is None, setting to empty string")
+            #print("content is None, setting to empty string")
             return True
         if isinstance(self.content, str) and self.content.strip() == "":
             self.content = ""
-            print("content is empty string, setting to empty string")
+            #print("content is empty string, setting to empty string")
             return True
         return True
 
