@@ -150,10 +150,13 @@ def save_scores(metrics: AgentMetrics) -> None:
         print(f"⚠️  {error_msg}", file=sys.stderr)
         return
     
+    upload_path = os.getenv("UPLOAD_PATH")
     # Create result directory if it doesn't exist
     os.makedirs(result_folder, exist_ok=True)
+    os.makedirs(upload_path, exist_ok=True)
     
     result_file = os.path.join(result_folder, f"tau2_bench_{domain}.json")
+    upload_file = os.path.join(upload_path, f"tau2_bench_{domain}.json")
     try:
         metrics_dict = metrics.as_dict()
         score = metrics_dict["avg_reward"]
@@ -174,6 +177,8 @@ def save_scores(metrics: AgentMetrics) -> None:
         
         final_result["_VERSION_INFO_"] = version_info
         with open(result_file, "w") as f:
+            json.dump(final_result, f, indent=2)
+        with open(upload_file, "w") as f:
             json.dump(final_result, f, indent=2)
         success_msg = f"Saved metrics to {result_file}"
         logger.info(success_msg)
