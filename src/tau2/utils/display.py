@@ -16,7 +16,7 @@ from tau2.data_model.message import (
 )
 from tau2.data_model.simulation import RunConfig, SimulationRun
 from tau2.data_model.tasks import Action, Task
-from tau2.metrics.agent_metrics import AgentMetrics, is_successful
+from tau2.metrics.agent_metrics import AgentMetrics, is_successful, save_scores
 
 
 class ConsoleDisplay:
@@ -359,6 +359,8 @@ class ConsoleDisplay:
         )
 
         cls.console.print(metrics_panel)
+        # Save scores to file
+        save_scores(metrics)
 
 
 class MarkdownDisplay:

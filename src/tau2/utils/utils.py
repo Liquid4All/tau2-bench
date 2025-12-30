@@ -15,10 +15,12 @@ if not res:
 
 # Try to get data directory from environment variable first
 DATA_DIR_ENV = os.getenv("TAU2_DATA_DIR")
+TAU2_BENCH_PROJECT_ROOT = os.getenv("TAU2_BENCH_PROJECT_ROOT")
 
 if DATA_DIR_ENV:
     # Use environment variable if set
     DATA_DIR = Path(DATA_DIR_ENV)
+    TAU2_BENCH_PROJECT_ROOT = Path(TAU2_BENCH_PROJECT_ROOT)
     logger.info(f"Using data directory from environment: {DATA_DIR}")
 else:
     # Fallback to source directory (for development)

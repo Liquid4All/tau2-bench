@@ -478,7 +478,7 @@ def generate(
             except Exception as e:
                 break
         tool_calls = temp_tool_calls or None
-    if "<think>" in content and "</think>" in content:
+    if content and "<think>" in content and "</think>" in content:
         content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
         content = content.lstrip('\n')
     message = AssistantMessage(

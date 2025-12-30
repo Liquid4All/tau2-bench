@@ -1,12 +1,14 @@
 import math
 import re
-
+import os
+import sys
 import pandas as pd
 from loguru import logger
 from pydantic import BaseModel
-
+import json
 from tau2.data_model.simulation import Results
-
+from tau2.utils.version_profiler import get_version_info
+from pathlib import Path
 
 def is_successful(reward: float) -> bool:
     """
@@ -123,12 +125,73 @@ def compute_metrics(results: Results) -> AgentMetrics:
     )
 
 
+def save_scores(metrics: AgentMetrics) -> None:
+    model = os.getenv("BASE_MODEL_NAME")
+    model_path = os.getenv("MODEL_PATH")
+    if "-instruct" in model_path or "-reasoning" in model_path:
+        model = model_path.split("/")[-1]
+    domain = os.getenv("TEST_DOMAIN")
+    job_id = os.getenv("SLURM_JOBID")
+    result_folder = os.getenv("RESULT_PATH")
+    
+    # Check if all required environment variables are set
+    if not all([model, domain, job_id, result_folder]):
+        missing_vars = []
+        if not model:
+            missing_vars.append("BASE_MODEL_NAME")
+        if not domain:
+            missing_vars.append("TEST_DOMAIN")
+        if not job_id:
+            missing_vars.append("SLURM_JOBID")
+        if not result_folder:
+            missing_vars.append("RESULT_PATH")
+        error_msg = f"Cannot save scores: missing environment variables: {', '.join(missing_vars)}"
+        logger.warning(error_msg)
+        print(f"⚠️  {error_msg}", file=sys.stderr)
+        return
+    
+    # Create result directory if it doesn't exist
+    os.makedirs(result_folder, exist_ok=True)
+    
+    result_file = os.path.join(result_folder, f"tau2_bench_{domain}.json")
+    try:
+        metrics_dict = metrics.as_dict()
+        score = metrics_dict["avg_reward"]
+        del metrics_dict["avg_reward"]
+        metrics_dict["overall_score"] = score
+        final_result = {}
+        model_name = os.getenv(f"MODEL_PATH")
+        final_result["model_name"] = model_name
+        final_result["domain"] = domain
+        final_result["job_id"] = job_id
+        final_result["eval_name"] = "tau2_bench_" + domain
+        final_result["final_score"] = score
+        final_result["metrics"] = metrics_dict
+        version_info = get_version_info(
+            tau2_root=None,
+            env_path=os.getenv("CONDA_PREFIX")
+        )
+        
+        final_result["_VERSION_INFO_"] = version_info
+        with open(result_file, "w") as f:
+            json.dump(final_result, f, indent=2)
+        success_msg = f"Saved metrics to {result_file}"
+        logger.info(success_msg)
+        print(f"✅ {success_msg}")
+    except Exception as e:
+        error_msg = f"Failed to save scores to {result_file}: {e}"
+        logger.error(error_msg)
+        print(f"❌ {error_msg}", file=sys.stderr)
+
 def display_metrics(metrics: AgentMetrics) -> None:
     print(f"🏆 Average reward: {metrics.avg_reward}")
     print("📈 Pass^k")
     for k, pass_hat_k in metrics.pass_hat_ks.items():
         print(f"  k={k}: {pass_hat_k}")
     print(f"💰 Average agent cost: {metrics.avg_agent_cost}")
+    save_scores(metrics)
+
+
 
 
 if __name__ == "__main__":
