@@ -26,7 +26,7 @@ from tau2.registry import RegistryInfo, registry
 from tau2.user.user_simulator import DummyUser, get_global_user_sim_guidelines
 from tau2.utils.display import ConsoleDisplay, Text
 from tau2.utils.pydantic_utils import get_pydantic_hash
-from tau2.utils.utils import DATA_DIR, TAU2_BENCH_PROJECT_ROOT, get_commit_hash, get_now, show_dict_diff
+from tau2.utils.utils import DATA_DIR, INTERMEDIATE_RESULTS_PATH, get_commit_hash, get_now, show_dict_diff
 
 
 def get_options() -> RegistryInfo:
@@ -147,7 +147,7 @@ def run_domain(config: RunConfig) -> Results:
     save_to = config.save_to
     if save_to is None:
         save_to = make_run_name(config)
-    save_to = f"{TAU2_BENCH_PROJECT_ROOT}/{save_to}.json"
+    save_to = INTERMEDIATE_RESULTS_PATH
     simulation_results = run_tasks(
         domain=config.domain,
         tasks=tasks,

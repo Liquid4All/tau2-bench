@@ -155,7 +155,7 @@ def save_scores(metrics: AgentMetrics) -> None:
     os.makedirs(result_folder, exist_ok=True)
     os.makedirs(upload_path, exist_ok=True)
     
-    result_file = os.path.join(result_folder, f"tau2_bench_{domain}.json")
+    result_file = os.getenv("JOB_FINAL_PATH")
     upload_file = os.path.join(upload_path, f"tau2_bench_{domain}.json")
     try:
         metrics_dict = metrics.as_dict()
