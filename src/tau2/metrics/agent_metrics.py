@@ -132,7 +132,7 @@ def save_scores(metrics: AgentMetrics) -> None:
         model = model_path.split("/")[-1]
     domain = os.getenv("TEST_DOMAIN")
     job_id = os.getenv("SLURM_JOBID")
-    result_folder = os.getenv("RESULT_PATH")
+    result_folder = os.getenv("JOB_FINAL_DIR")
     
     # Check if all required environment variables are set
     if not all([model, domain, job_id, result_folder]):
@@ -144,7 +144,7 @@ def save_scores(metrics: AgentMetrics) -> None:
         if not job_id:
             missing_vars.append("SLURM_JOBID")
         if not result_folder:
-            missing_vars.append("RESULT_PATH")
+            missing_vars.append("JOB_FINAL_DIR")
         error_msg = f"Cannot save scores: missing environment variables: {', '.join(missing_vars)}"
         logger.warning(error_msg)
         print(f"⚠️  {error_msg}", file=sys.stderr)
