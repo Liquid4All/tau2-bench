@@ -15,7 +15,7 @@ if not res:
 
 # Try to get data directory from environment variable first
 DATA_DIR_ENV = os.getenv("TAU2_DATA_DIR")
-INTERMEDIATE_RESULTS_PATH = os.getenv("INTERMEDIATE_RESULTS_PATH")
+INTERMEDIATE_RESULTS_PATH = os.getenv("INTERMEDIATE_PATH")
 
 if DATA_DIR_ENV:
     # Use environment variable if set
