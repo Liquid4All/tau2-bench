@@ -158,18 +158,21 @@ def save_scores(metrics: AgentMetrics) -> None:
     result_file = os.getenv("JOB_FINAL_PATH")
     upload_file = os.path.join(upload_path, f"tau2_bench_{domain}.json")
     try:
+        eval_name = "tau2_bench_" + domain
         metrics_dict = metrics.as_dict()
         score = metrics_dict["avg_reward"]
         del metrics_dict["avg_reward"]
-        metrics_dict["overall_score"] = score
+        metrics_dict["accuracy"] = score
         final_result = {}
+        score_result = {}
         model_name = os.getenv(f"MODEL_PATH")
         final_result["model_name"] = model_name
         final_result["domain"] = domain
         final_result["job_id"] = job_id
-        final_result["eval_name"] = "tau2_bench_" + domain
+        final_result["eval_name"] = eval_name
         final_result["final_score"] = score
-        final_result["metrics"] = metrics_dict
+        score_result[eval_name] = metrics_dict
+        final_result["result"] = score_result
         version_info = get_version_info(
             tau2_root=None,
             env_path=os.getenv("CONDA_PREFIX")
