@@ -40,7 +40,7 @@ You cannot do both at the same time.
 
 Try to be helpful and always follow the policy. Always make sure you generate valid Python only as the following format:
 
-<|tool_call_start|>[func_name1(params_name1=params_value1, params_name2=params_value2...), func_name2(params)]<|tool_call_end|>
+<|tool_call_start|>[func_name1(params_name1=params_value1, params_name2=params_value2...)]<|tool_call_end|>
 """.strip()
 
 SYSTEM_PROMPT = """
