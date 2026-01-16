@@ -109,11 +109,9 @@ def parse_liquid_response(response: str | None) -> str:
     if "<|tool_call_start|>" in response and "<|tool_call_end|>" in response:
         match = re.search(r"<\|tool_call_start\|>(.*?)<\|tool_call_end\|>", response, re.DOTALL)
         if match:
-            answer = match.group(1)
+            return match.group(1).strip()
         else:
-            answer = response
-        answer = re.sub(r"<\|tool_call_start\|>|<\|tool_call_end\|>", "", answer).strip()
-        return answer
+            return response
     else:
         return response
 
@@ -342,16 +340,24 @@ def to_tau2_messages(
     return tau2_messages
 
 
-def to_litellm_messages(messages: list[Message]) -> list[dict]:
+def to_litellm_messages(messages: list[Message], model: Optional[str] = None) -> list[dict]:
     """
     Convert a list of Tau2 messages to a list of litellm messages.
+    
+    Args:
+        messages: List of Tau2 Message objects
+        model: Optional model name to detect if Liquid format is needed
     """
     litellm_messages = []
+    is_liquid_model = model and ("liquid-api" in model.lower() or "liquid-api-Prompt" in model)
+    
     for message in messages:
         if isinstance(message, UserMessage):
             litellm_messages.append({"role": "user", "content": message.content})
         elif isinstance(message, AssistantMessage):
             tool_calls = None
+            content = message.content
+            
             if message.is_tool_call():
                 tool_calls = [
                     {
@@ -365,21 +371,36 @@ def to_litellm_messages(messages: list[Message]) -> list[dict]:
                     }
                     for tc in message.tool_calls
                 ]
-            litellm_messages.append(
-                {
-                    "role": "assistant",
-                    "content": message.content,
-                    "tool_calls": tool_calls,
-                }
-            )
+                
+                # For Liquid models, reconstruct the format tags in content
+                # Format: <|tool_call_start|>[func1(...), func2(...)]<|tool_call_end|>
+                if is_liquid_model:
+                    func_call_parts = []
+                    for tc in message.tool_calls:
+                        # Format arguments as Python function call parameters
+                        args_str = ", ".join([f"{k}={repr(v)}" for k, v in tc.arguments.items()])
+                        func_call_parts.append(f"{tc.name}({args_str})")
+                    # Combine all function calls into a single list
+                    func_calls_list = ", ".join(func_call_parts)
+                    content = f"<|tool_call_start|>[{func_calls_list}]<|tool_call_end|>"
+            
+            assistant_message = {
+                "role": "assistant",
+                "content": content,
+            }
+            # Liquid models don't use tool_calls array
+            if not is_liquid_model and tool_calls is not None:
+                assistant_message["tool_calls"] = tool_calls
+            litellm_messages.append(assistant_message)
         elif isinstance(message, ToolMessage):
-            litellm_messages.append(
-                {
-                    "role": "tool",
-                    "content": message.content,
-                    "tool_call_id": message.id,
-                }
-            )
+            tool_message = {
+                "role": "tool",
+                "content": message.content,
+            }
+            # Liquid models don't use tool_call_id
+            if not is_liquid_model:
+                tool_message["tool_call_id"] = message.id
+            litellm_messages.append(tool_message)
         elif isinstance(message, SystemMessage):
             litellm_messages.append({"role": "system", "content": message.content})
     return litellm_messages
@@ -409,7 +430,7 @@ def generate(
 
     if model.startswith("claude") and not ALLOW_SONNET_THINKING:
         kwargs["thinking"] = {"type": "disabled"}
-    litellm_messages = to_litellm_messages(messages)
+    litellm_messages = to_litellm_messages(messages, model=model)
     tools = [tool.openai_schema for tool in tools] if tools else None
     if tools and tool_choice is None:
         tool_choice = "auto"
