@@ -515,12 +515,8 @@ def generate(
         cost=cost,
         usage=usage,
         raw_data={
-            "request": {
-                "messages": litellm_messages,
-                "tools": tools,
-                "tool_choice": tool_choice,
-            },
-            "response": response.to_dict(),
+            "input": litellm_messages,
+            "output": content,
         },
     )
     return message
