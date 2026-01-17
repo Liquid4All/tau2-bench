@@ -203,7 +203,7 @@ def parse_assistant_message(text: str) -> str:
     think_block = extract_think_block(text)
     if "<think>" in text and "</think>" in text:
         text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
-        text = text.lstrip('\n')
+        text = text.strip()
     parsed_text = parse_liquid_response(text)
     if "<|tool_call_start|>" in text or "<|tool_call_end|>" in text:
         text = text.replace(parsed_text, "")
@@ -218,7 +218,7 @@ def parse_tool_calls(text: str) -> List[ToolCall]:
     think_block = extract_think_block(text)
     if "<think>" in text and "</think>" in text:
         text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
-        text = text.lstrip('\n')
+        text = text.strip()
     parsed_text = parse_liquid_response(text)
     extracted_tool_calls = []
     if "<|tool_call_start|>" in text and "<|tool_call_end|>" in text:
@@ -357,6 +357,12 @@ def to_litellm_messages(messages: list[Message], model: Optional[str] = None) ->
         elif isinstance(message, AssistantMessage):
             tool_calls = None
             content = message.content
+            
+            # Strip thinking traces from past messages for multi-turn conversations
+            # This ensures past messages with thinking traces don't leak into future turns
+            if content and "<think>" in content and "</think>" in content:
+                content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
+                content = content.strip()
             
             if message.is_tool_call():
                 tool_calls = [
@@ -501,7 +507,7 @@ def generate(
         tool_calls = temp_tool_calls or None
     if content and "<think>" in content and "</think>" in content:
         content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
-        content = content.lstrip('\n')
+        content = content.strip()
     message = AssistantMessage(
         role="assistant",
         content=content,
