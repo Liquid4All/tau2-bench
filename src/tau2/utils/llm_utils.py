@@ -295,10 +295,10 @@ def get_response_cost(response: ModelResponse) -> float:
     """
     Get the cost of the response from the litellm completion.
     """
-    response.model = _parse_ft_model_name(
-        response.model
-    )  # FIXME: Check Litellm, passing the model to completion_cost doesn't work.
     try:
+        response.model = _parse_ft_model_name(
+            response.model
+        )  # FIXME: Check Litellm, passing the model to completion_cost doesn't work.
         cost = completion_cost(completion_response=response)
     except Exception as e:
         #logger.error(e)
@@ -307,7 +307,12 @@ def get_response_cost(response: ModelResponse) -> float:
 
 
 def get_response_usage(response: ModelResponse) -> Optional[dict]:
-    usage: Optional[Usage] = response.get("usage")
+    if not response:
+        return  {
+        "completion_tokens": 0,
+        "prompt_tokens": 0,
+    }
+    usage: Optional[Usage] = response.get("usage", None)
     if usage is None:
         return None
     return {
@@ -350,6 +355,7 @@ def to_litellm_messages(messages: list[Message], model: Optional[str] = None) ->
     """
     litellm_messages = []
     is_liquid_model = model and ("liquid-api" in model.lower() or "liquid-api-Prompt" in model)
+    is_gemma_model = model and "gemma" in model.lower()
     
     for message in messages:
         if isinstance(message, UserMessage):
@@ -399,13 +405,18 @@ def to_litellm_messages(messages: list[Message], model: Optional[str] = None) ->
                 assistant_message["tool_calls"] = tool_calls
             litellm_messages.append(assistant_message)
         elif isinstance(message, ToolMessage):
-            tool_message = {
-                "role": "tool",
-                "content": message.content,
-            }
-            # Liquid models don't use tool_call_id
-            if not is_liquid_model:
-                tool_message["tool_call_id"] = message.id
+            if is_gemma_model:
+                tool_message = {
+                    "role": "user",
+                    "content": message.content,
+                }
+            else:
+                tool_message = {
+                    "role": "tool",
+                    "content": message.content,
+                }
+                if not is_liquid_model:
+                    tool_message["tool_call_id"] = message.id
             litellm_messages.append(tool_message)
         elif isinstance(message, SystemMessage):
             litellm_messages.append({"role": "system", "content": message.content})
@@ -480,13 +491,13 @@ def generate(
     assert response.message.role == "assistant", (
         "The response should be an assistant message"
     )
-    content = response.message.content
+    content = response.message.content or ""
     tool_calls = response.message.tool_calls or []
     #if model != "openrouter/qwen/qwen3-235b-a22b-2507":
         #print("tool_calls: ", tool_calls)
         #print("model: ", model)
         #print("content: ", content)
-    if "liquid-api-Prompt" in model:
+    if "liquid-api-Prompt" in model and response.finish_reason != "tool_calls":
         tool_calls, content = liquid_api_handler(content)
     else:
         temp_tool_calls = []
@@ -505,9 +516,22 @@ def generate(
             except Exception as e:
                 break
         tool_calls = temp_tool_calls or None
-    if content and "<think>" in content and "</think>" in content:
-        content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
-        content = content.strip()
+    if content and ("<think>" in content or "</think>" in content):
+        think_trace = extract_think_block(content)
+        rest = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+        content = f"<think>{think_trace}</think>\n\n{rest}" if rest else f"<think>{think_trace}</think>"
+    """
+    if response.finish_reason == "tool_calls" and "liquid-api-Prompt" in model and tool_calls is not None and content == "":
+        pythonic_tool_calls = []
+        for tool_call in tool_calls:
+            function_name = tool_call.function.name
+            arguments = tool_call.function.arguments
+            if isinstance(arguments, str):
+                arguments = json.loads(arguments)
+            python_call_string = f"{function_name}({', '.join([f'{k}={repr(v)}' for k, v in arguments.items()])})"
+            pythonic_tool_calls.append(python_call_string)
+        content = f"<|tool_call_start|>[{', '.join(pythonic_tool_calls)}]<|tool_call_end|>"
+    """
     message = AssistantMessage(
         role="assistant",
         content=content,
