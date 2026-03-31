@@ -345,6 +345,24 @@ def to_tau2_messages(
     return tau2_messages
 
 
+def _merge_consecutive_roles(messages: list[dict]) -> list[dict]:
+    """
+    Merge consecutive messages with the same role into single messages.
+    Required for models like Gemma that enforce strict role alternation.
+    """
+    if not messages:
+        return messages
+    merged = [messages[0].copy()]
+    for msg in messages[1:]:
+        if msg["role"] == merged[-1]["role"]:
+            prev_content = merged[-1].get("content", "") or ""
+            curr_content = msg.get("content", "") or ""
+            merged[-1]["content"] = f"{prev_content}\n{curr_content}".strip()
+        else:
+            merged.append(msg.copy())
+    return merged
+
+
 def to_litellm_messages(messages: list[Message], model: Optional[str] = None) -> list[dict]:
     """
     Convert a list of Tau2 messages to a list of litellm messages.
@@ -400,8 +418,7 @@ def to_litellm_messages(messages: list[Message], model: Optional[str] = None) ->
                 "role": "assistant",
                 "content": content,
             }
-            # Liquid models don't use tool_calls array
-            if not is_liquid_model and tool_calls is not None:
+            if not is_liquid_model and not is_gemma_model and tool_calls is not None:
                 assistant_message["tool_calls"] = tool_calls
             litellm_messages.append(assistant_message)
         elif isinstance(message, ToolMessage):
@@ -419,7 +436,12 @@ def to_litellm_messages(messages: list[Message], model: Optional[str] = None) ->
                     tool_message["tool_call_id"] = message.id
             litellm_messages.append(tool_message)
         elif isinstance(message, SystemMessage):
-            litellm_messages.append({"role": "system", "content": message.content})
+            if is_gemma_model:
+                litellm_messages.append({"role": "user", "content": message.content})
+            else:
+                litellm_messages.append({"role": "system", "content": message.content})
+    if is_gemma_model:
+        litellm_messages = _merge_consecutive_roles(litellm_messages)
     return litellm_messages
 
 
@@ -472,6 +494,16 @@ def generate(
         return message
     cost = get_response_cost(response)
     usage = get_response_usage(response)
+    if not response:
+        message = AssistantMessage(
+            role="assistant",
+            content="Please use ###STOP### to exit the current conversation and try again later.",
+            tool_calls=None,
+            cost=0.0,
+            usage={},
+            raw_data={},
+        )
+        return message
     response = response.choices[0]
     try:
         finish_reason = response.finish_reason
@@ -520,18 +552,6 @@ def generate(
         think_trace = extract_think_block(content)
         rest = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
         content = f"<think>{think_trace}</think>\n\n{rest}" if rest else f"<think>{think_trace}</think>"
-    """
-    if response.finish_reason == "tool_calls" and "liquid-api-Prompt" in model and tool_calls is not None and content == "":
-        pythonic_tool_calls = []
-        for tool_call in tool_calls:
-            function_name = tool_call.function.name
-            arguments = tool_call.function.arguments
-            if isinstance(arguments, str):
-                arguments = json.loads(arguments)
-            python_call_string = f"{function_name}({', '.join([f'{k}={repr(v)}' for k, v in arguments.items()])})"
-            pythonic_tool_calls.append(python_call_string)
-        content = f"<|tool_call_start|>[{', '.join(pythonic_tool_calls)}]<|tool_call_end|>"
-    """
     message = AssistantMessage(
         role="assistant",
         content=content,
