@@ -373,7 +373,7 @@ def to_litellm_messages(messages: list[Message], model: Optional[str] = None) ->
     """
     litellm_messages = []
     is_liquid_model = model and ("liquid-api" in model.lower() or "liquid-api-Prompt" in model)
-    is_gemma_model = model and "gemma" in model.lower()
+    is_gemma_3_model = model and "gemma-3" in model.lower()
     
     for message in messages:
         if isinstance(message, UserMessage):
@@ -418,11 +418,11 @@ def to_litellm_messages(messages: list[Message], model: Optional[str] = None) ->
                 "role": "assistant",
                 "content": content,
             }
-            if not is_liquid_model and not is_gemma_model and tool_calls is not None:
+            if not is_liquid_model and not is_gemma_3_model and tool_calls is not None:
                 assistant_message["tool_calls"] = tool_calls
             litellm_messages.append(assistant_message)
         elif isinstance(message, ToolMessage):
-            if is_gemma_model:
+            if is_gemma_3_model:
                 tool_message = {
                     "role": "user",
                     "content": message.content,
@@ -436,11 +436,11 @@ def to_litellm_messages(messages: list[Message], model: Optional[str] = None) ->
                     tool_message["tool_call_id"] = message.id
             litellm_messages.append(tool_message)
         elif isinstance(message, SystemMessage):
-            if is_gemma_model:
+            if is_gemma_3_model:
                 litellm_messages.append({"role": "user", "content": message.content})
             else:
                 litellm_messages.append({"role": "system", "content": message.content})
-    if is_gemma_model:
+    if is_gemma_3_model:
         litellm_messages = _merge_consecutive_roles(litellm_messages)
     return litellm_messages
 
@@ -469,6 +469,7 @@ def generate(
 
     if model.startswith("claude") and not ALLOW_SONNET_THINKING:
         kwargs["thinking"] = {"type": "disabled"}
+
     litellm_messages = to_litellm_messages(messages, model=model)
     tools = [tool.openai_schema for tool in tools] if tools else None
     if tools and tool_choice is None:
