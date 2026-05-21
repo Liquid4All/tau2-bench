@@ -4,11 +4,12 @@ from tau2.data_model.message import (
     AssistantMessage,
     Message,
     SystemMessage,
+    ToolCall,
     ToolMessage,
     UserMessage,
 )
 from tau2.environment.tool import Tool, as_tool
-from tau2.utils.llm_utils import generate
+from tau2.utils.llm_utils import generate, to_litellm_messages
 
 
 @pytest.fixture
@@ -75,3 +76,58 @@ def test_generate_tool_call(model: str, tool_call_messages: list[Message], tool:
     assert isinstance(response, AssistantMessage)
     assert response.tool_calls is None
     assert response.content == "25"
+
+
+def test_to_litellm_messages_liquid_prompt_tool_history():
+    messages = [
+        SystemMessage(role="system", content="Follow the policy."),
+        UserMessage(role="user", content="Look up my account."),
+        AssistantMessage(
+            role="assistant",
+            content=None,
+            tool_calls=[
+                ToolCall(
+                    id="call_1",
+                    name="get_account",
+                    arguments={"email": "test@example.com", "include_orders": True},
+                )
+            ],
+        ),
+        ToolMessage(role="tool", id="call_1", content='{"status": "active"}'),
+    ]
+
+    rendered = to_litellm_messages(messages, model="openai/liquid-api-Prompt")
+
+    assert rendered[2] == {
+        "role": "assistant",
+        "content": (
+            "<|tool_call_start|>"
+            "[get_account(email='test@example.com', include_orders=True)]"
+            "<|tool_call_end|>"
+        ),
+    }
+    assert "tool_calls" not in rendered[2]
+    assert rendered[3] == {"role": "tool", "content": '{"status": "active"}'}
+
+
+def test_to_litellm_messages_liquid_prompt_same_for_hf_and_gguf_alias():
+    messages = [
+        SystemMessage(role="system", content="Follow the policy."),
+        UserMessage(role="user", content="Look up my account."),
+        AssistantMessage(
+            role="assistant",
+            content=None,
+            tool_calls=[
+                ToolCall(
+                    id="call_1",
+                    name="get_account",
+                    arguments={"email": "test@example.com"},
+                )
+            ],
+        ),
+    ]
+
+    hf_messages = to_litellm_messages(messages, model="liquid-api-Prompt")
+    gguf_messages = to_litellm_messages(messages, model="openai/liquid-api-Prompt")
+
+    assert hf_messages == gguf_messages
