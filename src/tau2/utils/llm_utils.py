@@ -381,13 +381,24 @@ def to_litellm_messages(messages: list[Message], model: Optional[str] = None) ->
         elif isinstance(message, AssistantMessage):
             tool_calls = None
             content = message.content
-            
-            # Strip thinking traces from past messages for multi-turn conversations
-            # This ensures past messages with thinking traces don't leak into future turns
+            thinking = None
+
             if content and "<think>" in content and "</think>" in content:
-                content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
-                content = content.strip()
-            
+                if is_liquid_model:
+                    # For LFM: lift the trace into a dedicated `thinking` field
+                    # so the chat template can read message.thinking. The ckpt's
+                    # `preserve_thinking` default then decides whether older
+                    # turns' thinking is rendered back into the prompt.
+                    m = re.search(r"<think>([\s\S]*?)</think>", content)
+                    if m:
+                        thinking = m.group(1).strip()
+                    content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
+                else:
+                    # Strip thinking traces from past messages for multi-turn conversations
+                    # This ensures past messages with thinking traces don't leak into future turns
+                    content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL)
+                    content = content.strip()
+
             if message.is_tool_call():
                 tool_calls = [
                     {
@@ -418,6 +429,8 @@ def to_litellm_messages(messages: list[Message], model: Optional[str] = None) ->
                 "role": "assistant",
                 "content": content,
             }
+            if thinking:
+                assistant_message["thinking"] = thinking
             if not is_liquid_model and not is_gemma_3_model and tool_calls is not None:
                 assistant_message["tool_calls"] = tool_calls
             litellm_messages.append(assistant_message)
